@@ -20,7 +20,7 @@ func NewStorage(db *sql.DB) *Storage {
 func (s *Storage) NewDatabase() error {
 	sqlStmt := `
 	create table setting (version INTEGER); 
-	create table workershares (checksum TEXT primary key, address TEXT not null, workername TEXT not null, valid_shares INTEGER, stale_shares INTEGER, invalid_shares INTEGER, lastseen TIMESTAMP); 
+	create table workershares (checksum TEXT primary key, poolname TEXT not null, address TEXT not null, workername TEXT not null, valid_shares INTEGER, stale_shares INTEGER, invalid_shares INTEGER, lastseen TIMESTAMP); 
 	create table addresses (checksum TEXT primary key, address TEXT, poolname TEXT, created_at TIMESTAMP);
 	`
 	_, err := s.db.Exec(sqlStmt)
@@ -66,20 +66,22 @@ func (s *Storage) GetAddresses(poolname string) (error, []string) {
 	return nil, results
 }
 
-func (s *Storage) SaveWorkerShares(address string, workers []*poolapi.FlexpoolWorker) int {
+func (s *Storage) SaveWorkerShares(poolname string, address string, workers []*poolapi.FlexpoolWorker) int {
 	tx, err := s.db.Begin()
-	stmt, err := tx.Prepare("insert into workershares(checksum, address, workername, valid_shares, stale_shares, invalid_shares, lastseen) values(?,?,?,?,?,?,?)")
+	stmt, err := tx.Prepare("insert into workershares(checksum, poolname, address, workername, valid_shares, stale_shares, invalid_shares, lastseen) values(?, ?,?,?,?,?,?,?)")
 	defer stmt.Close()
 	insertcount := 0
 	for _, worker := range workers {
-		str := fmt.Sprintf("%s %s %d %d %d %d", address, worker.Name, worker.ValidShares, worker.StaleShares, worker.InvalidShares, worker.LastSeen)
+		str := fmt.Sprintf("%s %s %s %d %d %d %d", poolname, address, worker.Name, worker.ValidShares, worker.StaleShares, worker.InvalidShares, worker.LastSeen)
 		checksumstr := fmt.Sprintf("%x", sha1.Sum([]byte(str)))
-		_, err = stmt.Exec(checksumstr, address, worker.Name, worker.ValidShares, worker.StaleShares, worker.InvalidShares, worker.LastSeen)
+		_, err = stmt.Exec(checksumstr, poolname, address, worker.Name, worker.ValidShares, worker.StaleShares, worker.InvalidShares, worker.LastSeen)
 		if err != nil {
 			sqliteErr := err.(sqlite3.Error)
 			if sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey {
 				insertcount++
 				//data exist, it's ok
+			} else {
+				fmt.Printf("save worker err:%s\n", err)
 			}
 		} else {
 			insertcount++

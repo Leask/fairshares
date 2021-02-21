@@ -1,12 +1,13 @@
 package poolapi
 
 import (
+	"context"
 	"io/ioutil"
 	"net/http"
 )
 
-func HttpGet(url, apiKey string) (error, []byte) {
-	request, err := http.NewRequest("GET", url, nil)
+func HttpGet(ctx context.Context, url, apiKey string) (error, []byte) {
+	request, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err, nil
 	}

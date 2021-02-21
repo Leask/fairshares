@@ -1,6 +1,7 @@
 package poolapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,11 +30,11 @@ func NewFlexAPI(e, a string) *FlexAPI {
 	return &FlexAPI{e, a}
 }
 
-func (api *FlexAPI) GetWorkers(address string) (error, []*FlexpoolWorker) {
+func (api *FlexAPI) GetWorkers(ctx context.Context, address string) (error, []*FlexpoolWorker) {
 	resultworkers := &FlexpoolWorkers{}
 
 	url := fmt.Sprintf("%s/miner/%s/workers/", api.Endpoint, address)
-	err, jsondata := HttpGet(url, api.Apikey)
+	err, jsondata := HttpGet(ctx, url, api.Apikey)
 	if err != nil {
 		return err, nil
 	}
