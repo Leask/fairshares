@@ -20,6 +20,10 @@ type FlexpoolWorkers struct {
 	Error   *string           `json:"error"`
 	Workers []*FlexpoolWorker `json:"result"`
 }
+type FlexpoolBalance struct {
+	Error  *string `json:"error"`
+	Result int64   `json:"result"`
+}
 
 type FlexAPI struct {
 	Endpoint string
@@ -28,6 +32,27 @@ type FlexAPI struct {
 
 func NewFlexAPI(e, a string) *FlexAPI {
 	return &FlexAPI{e, a}
+}
+
+func (api *FlexAPI) GetBalance(ctx context.Context, address string) (error, int64) {
+	resultbalance := &FlexpoolBalance{}
+	url := fmt.Sprintf("%s/miner/%s/balance/", api.Endpoint, address)
+	err, jsondata := HttpGet(ctx, url, api.Apikey)
+
+	if err != nil {
+		return err, 0
+	}
+
+	err = json.Unmarshal(jsondata, &resultbalance)
+
+	if err != nil {
+		return err, 0
+	}
+
+	if resultbalance.Error != nil {
+		return errors.New(*resultbalance.Error), 0
+	}
+	return nil, resultbalance.Result
 }
 
 func (api *FlexAPI) GetWorkers(ctx context.Context, address string) (error, []*FlexpoolWorker) {

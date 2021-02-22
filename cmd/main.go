@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"flag"
 	"github.com/huo-ju/fairshares/internal/pkg/poolapi"
 	"github.com/huo-ju/fairshares/internal/pkg/storage"
 	"github.com/mattn/go-sqlite3"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,8 +20,8 @@ const DBVersion = 1
 //internal/pkg/poolapi/flexpool.go
 
 const (
-	JobFetchData  = iota
-	JobFetchBlock = iota
+	JobFetchData    = iota
+	JobFetchBalance = iota
 )
 
 type Job struct {
@@ -37,36 +38,40 @@ type Result struct {
 
 func main() {
 
+	dbname := flag.String("dbname", "faireshare.db", "database name")
+
+	flag.Parse()
+
 	jobch := make(chan Job)
 	resultch := make(chan Result)
 
 	address := "0x65146D70901C70188Eb02AeF452eEcCC3dA39208"
 	poolname := "flexpool"
 
-	db, err := sql.Open("sqlite3", "./faireshare.db")
+	db, err := sql.Open("sqlite3", *dbname)
+	log.Println("open database:", *dbname)
 	if err != nil {
-		fmt.Println(err)
-		return
+		log.Fatal(err)
 	}
 	store := storage.NewStorage(db)
 	if store.DatabaseVersion() < DBVersion {
 		err = store.NewDatabase()
 	}
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	fmt.Println("==store")
-	fmt.Println(store)
-	fmt.Println(err)
 	ver := store.DatabaseVersion()
-	fmt.Println(ver)
+	log.Println("database version :", ver)
 	err = store.RegAddress(address, poolname)
 	if err != nil {
 		sqliteErr := err.(sqlite3.Error)
 		if sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey {
-			fmt.Printf("address exist %s\n", address)
+			log.Printf("address exist %s\n", address)
 		}
 	} else {
-		fmt.Printf("reg address:%s result:", address)
-		fmt.Println(err)
+		log.Printf("reg address:%s result:", address)
+		log.Println(err)
 	}
 
 	maxjob := 1
@@ -78,9 +83,6 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*10))
 	defer cancel()
 	go FetchDataTicker(ctx, store, jobch, []string{poolname})
-
-	//savecount := store.SaveWorkerShares(address, workers)
-	//fmt.Printf("insert %d succ %d\n", len(workers), savecount)
 	defer db.Close()
 
 	exitSignal := make(chan os.Signal)
@@ -89,15 +91,31 @@ func main() {
 }
 
 func fetchData(ctx context.Context, store *storage.Storage, poolname string, address string) {
-	fmt.Println("==run fetchData")
+	log.Println("run fetchData: ", poolname, address)
 	flexapi := poolapi.NewFlexAPI(FlexApiEndpoint, "")
 	err, workers := flexapi.GetWorkers(ctx, address)
 	if err != nil {
-		fmt.Println("flexapi.GetWorkers error")
-		fmt.Println(err)
+		log.Println("flexapi.GetWorkers error", err)
 	} else {
+		log.Printf("save address %s workers\n", address)
 		savecount := store.SaveWorkerShares(poolname, address, workers)
-		fmt.Printf("save %d", savecount)
+		log.Println("save count:", savecount)
+	}
+}
+
+func fetchBalance(ctx context.Context, store *storage.Storage, poolname string, address string) {
+	log.Println("run fetchBalance: ", poolname, address)
+	flexapi := poolapi.NewFlexAPI(FlexApiEndpoint, "")
+	err, balance := flexapi.GetBalance(ctx, address)
+	if err != nil {
+		log.Println("flexapi.GetBalance error", err)
+	} else {
+		err = store.SaveBalance(poolname, address, balance)
+		if err != nil {
+			log.Println("fsave balance error", err)
+		} else {
+			log.Printf("balance saved")
+		}
 	}
 }
 
@@ -105,12 +123,16 @@ func runworker(jobch chan Job, resultch chan Result, store *storage.Storage, job
 	for {
 		select {
 		case j := <-jobch:
-			fmt.Printf("job %d data %s input: %d \n", j.Type, j.Address, jobid)
+			log.Printf("job %d data %s input: %d \n", j.Type, j.Address, jobid)
 			if j.Type == JobFetchData {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*10))
 				defer cancel()
 				go fetchData(ctx, store, j.Poolname, j.Address)
 				//resultch <- Result{Type: j.Type}
+			} else if j.Type == JobFetchBalance {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*10))
+				defer cancel()
+				go fetchBalance(ctx, store, j.Poolname, j.Address)
 			}
 			time.Sleep(2 * time.Second)
 		}
@@ -122,30 +144,29 @@ func readresult(resultch chan Result, jobid int) {
 	for {
 		select {
 		case r := <-resultch:
-			fmt.Printf("result %d output: %d \n", r.Type, jobid)
+			log.Printf("result %d output: %d \n", r.Type, jobid)
 		}
 	}
 
 }
 
 func FetchDataTicker(ctx context.Context, store *storage.Storage, jobch chan Job, poolnames []string) {
-	fmt.Println("run fetchDataTicker")
-	dataTicker := time.NewTicker(time.Second * 10)
+	log.Println("run fetchDataTicker")
+	dataTicker := time.NewTicker(time.Second * 60 * 5)
 	for {
 		select {
 		case <-dataTicker.C:
-			fmt.Println("ticker!")
 			for _, poolname := range poolnames {
-				fmt.Println(poolname)
-				//flexapi := poolapi.NewFlexAPI(FlexApiEndpoint, "")
 				err, addresses := store.GetAddresses(poolname)
 				if err != nil {
-					fmt.Println(err)
+					log.Println(err)
 				} else {
 					for _, address := range addresses {
 						jobch <- Job{Type: JobFetchData, Address: address, Poolname: poolname}
+						jobch <- Job{Type: JobFetchBalance, Address: address, Poolname: poolname}
 					}
 				}
+
 			}
 		}
 	}
