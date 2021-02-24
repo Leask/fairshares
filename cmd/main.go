@@ -20,15 +20,17 @@ const DBVersion = 1
 //internal/pkg/poolapi/flexpool.go
 
 const (
-	JobFetchData    = iota
+	JobFetchWorkers = iota
+	JobFetchChart   = iota
 	JobFetchBalance = iota
 )
 
 type Job struct {
-	Id       int
-	Poolname string
-	Address  string
-	Type     int
+	Id         int
+	Poolname   string
+	Address    string
+	Workername string
+	Type       int
 }
 type Result struct {
 	Id   int
@@ -46,6 +48,7 @@ func main() {
 	resultch := make(chan Result)
 
 	address := "0x65146D70901C70188Eb02AeF452eEcCC3dA39208"
+	//address := "0xc3722311F6f43476174C1ea46E09fF07f007C386"
 	poolname := "flexpool"
 
 	db, err := sql.Open("sqlite3", *dbname)
@@ -83,6 +86,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*10))
 	defer cancel()
 	go FetchDataTicker(ctx, store, jobch, []string{poolname})
+	go FetchBalanceTicker(ctx, store, jobch, []string{poolname})
 	defer db.Close()
 
 	exitSignal := make(chan os.Signal)
@@ -90,16 +94,35 @@ func main() {
 	<-exitSignal
 }
 
-func fetchData(ctx context.Context, store *storage.Storage, poolname string, address string) {
-	log.Println("run fetchData: ", poolname, address)
+func fetchWorker(ctx context.Context, jobch chan Job, store *storage.Storage, poolname string, address string) {
+	log.Println("run fetchWorker: ", poolname, address)
 	flexapi := poolapi.NewFlexAPI(FlexApiEndpoint, "")
 	err, workers := flexapi.GetWorkers(ctx, address)
 	if err != nil {
 		log.Println("flexapi.GetWorkers error", err)
 	} else {
-		log.Printf("save address %s workers\n", address)
-		savecount := store.SaveWorkerShares(poolname, address, workers)
-		log.Println("save count:", savecount)
+		for _, worker := range workers {
+			log.Printf("add fetch chart job poolname %s address %s workers %s\n", poolname, address, worker.Name)
+			jobch <- Job{Type: JobFetchChart, Address: address, Poolname: poolname, Workername: worker.Name}
+		}
+		//log.Printf("save address %s workers\n", address)
+		//savecount := store.SaveWorkerShares(poolname, address, workers)
+		//log.Println("save count:", savecount)
+	}
+}
+
+func fetchWorkerChart(ctx context.Context, store *storage.Storage, poolname string, address string, workername string) {
+	log.Println("run fetchWorkerChart: ", poolname, address, workername)
+	flexapi := poolapi.NewFlexAPI(FlexApiEndpoint, "")
+	err, result := flexapi.GetWorkersChart(ctx, address, workername)
+	if err != nil {
+		log.Println("flexapi.GetWorkersChart error", err)
+	} else {
+		log.Println(result)
+		store.SaveWorkerChart(poolname, address, workername, result)
+		//log.Printf("save address %s workers\n", address)
+		//savecount := store.SaveWorkerShares(poolname, address, workers)
+		//log.Println("save count:", savecount)
 	}
 }
 
@@ -112,7 +135,7 @@ func fetchBalance(ctx context.Context, store *storage.Storage, poolname string, 
 	} else {
 		err = store.SaveBalance(poolname, address, balance)
 		if err != nil {
-			log.Println("fsave balance error", err)
+			log.Println("save balance error", err)
 		} else {
 			log.Printf("balance saved")
 		}
@@ -124,11 +147,16 @@ func runworker(jobch chan Job, resultch chan Result, store *storage.Storage, job
 		select {
 		case j := <-jobch:
 			log.Printf("job %d data %s input: %d \n", j.Type, j.Address, jobid)
-			if j.Type == JobFetchData {
+			if j.Type == JobFetchWorkers {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*10))
 				defer cancel()
-				go fetchData(ctx, store, j.Poolname, j.Address)
+				go fetchWorker(ctx, jobch, store, j.Poolname, j.Address)
 				//resultch <- Result{Type: j.Type}
+			} else if j.Type == JobFetchChart {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*10))
+				defer cancel()
+				go fetchWorkerChart(ctx, store, j.Poolname, j.Address, j.Workername)
+				log.Println(j)
 			} else if j.Type == JobFetchBalance {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*10))
 				defer cancel()
@@ -152,7 +180,7 @@ func readresult(resultch chan Result, jobid int) {
 
 func FetchDataTicker(ctx context.Context, store *storage.Storage, jobch chan Job, poolnames []string) {
 	log.Println("run fetchDataTicker")
-	dataTicker := time.NewTicker(time.Second * 60 * 5)
+	dataTicker := time.NewTicker(time.Second * 60 * 30)
 	for {
 		select {
 		case <-dataTicker.C:
@@ -162,7 +190,27 @@ func FetchDataTicker(ctx context.Context, store *storage.Storage, jobch chan Job
 					log.Println(err)
 				} else {
 					for _, address := range addresses {
-						jobch <- Job{Type: JobFetchData, Address: address, Poolname: poolname}
+						jobch <- Job{Type: JobFetchWorkers, Address: address, Poolname: poolname}
+					}
+				}
+
+			}
+		}
+	}
+}
+
+func FetchBalanceTicker(ctx context.Context, store *storage.Storage, jobch chan Job, poolnames []string) {
+	log.Println("run fetchBalanceTicker")
+	dataTicker := time.NewTicker(time.Second * 60 * 10)
+	for {
+		select {
+		case <-dataTicker.C:
+			for _, poolname := range poolnames {
+				err, addresses := store.GetAddresses(poolname)
+				if err != nil {
+					log.Println(err)
+				} else {
+					for _, address := range addresses {
 						jobch <- Job{Type: JobFetchBalance, Address: address, Poolname: poolname}
 					}
 				}

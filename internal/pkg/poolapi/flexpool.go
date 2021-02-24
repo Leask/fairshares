@@ -7,6 +7,30 @@ import (
 	"fmt"
 )
 
+//{
+//  "effective_hashrate": 0,
+//  "average_effective_hashrate": 31333333,
+//  "reported_hashrate": 0,
+//  "valid_shares": 0,
+//  "stale_shares": 0,
+//  "invalid_shares": 0
+//},
+
+type FlexpoolWorkerTicker struct {
+	Name                     string
+	Timestamp                int64   `json:"timestamp"`
+	EffectiveHashrate        float32 `json:"effective_hashrate"`
+	AverageEffectiveHashrate float32 `json:"average_effective_hashrate"`
+	ValidShares              int     `json:"valid_shares"`
+	StaleShares              int     `json:"stale_shares""`
+	InvalidShares            int     `json:"invalid_shares"`
+}
+
+type FlexpoolWorkersChart struct {
+	Error  *string                 `json:"error"`
+	Result []*FlexpoolWorkerTicker `json:"result"`
+}
+
 type FlexpoolWorker struct {
 	Name          string `json:"name"`
 	Online        bool   `json:"online"`
@@ -74,4 +98,25 @@ func (api *FlexAPI) GetWorkers(ctx context.Context, address string) (error, []*F
 		return errors.New(*resultworkers.Error), nil
 	}
 	return nil, resultworkers.Workers
+}
+
+func (api *FlexAPI) GetWorkersChart(ctx context.Context, address string, name string) (error, []*FlexpoolWorkerTicker) {
+	resultworkerchart := &FlexpoolWorkersChart{}
+
+	url := fmt.Sprintf("%s/worker/%s/%s/chart/", api.Endpoint, address, name)
+	err, jsondata := HttpGet(ctx, url, api.Apikey)
+	if err != nil {
+		return err, nil
+	}
+
+	err = json.Unmarshal(jsondata, &resultworkerchart)
+
+	if err != nil {
+		return err, nil
+	}
+
+	if resultworkerchart.Error != nil {
+		return errors.New(*resultworkerchart.Error), nil
+	}
+	return nil, resultworkerchart.Result
 }

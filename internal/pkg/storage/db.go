@@ -25,6 +25,8 @@ func (s *Storage) NewDatabase() error {
 	CREATE INDEX workerindex ON workershares(poolname,address, workername);
 	create table addresses (checksum TEXT primary key, address TEXT, poolname TEXT, created_at TIMESTAMP);
 	create table balance (checksum TEXT primary key, address TEXT, poolname TEXT, balance INTEGER, created_at TIMESTAMP);
+	create table workerchart (logid INTEGER PRIMARY KEY AUTOINCREMENT, poolname TEXT not null, address TEXT not null, workername TEXT not null, valid_shares INTEGER, stale_shares INTEGER, invalid_shares INTEGER, timestamp INTEGER);
+	CREATE INDEX chartindex ON workerchart(poolname,address, workername);
 	`
 	_, err := s.db.Exec(sqlStmt)
 	if err == nil {
@@ -142,4 +144,70 @@ func (s *Storage) SaveBalance(poolname string, address string, balance int64) er
 	}
 	_, err = stmt.Exec(checksumstr, address, poolname, balance, time.Now())
 	return err
+}
+
+//CREATE TABLE workerchart (logid INTEGER PRIMARY KEY AUTOINCREMENT, poolname TEXT not null, address TEXT not null, workername TEXT not null, valid_shares INTEGER, stale_shares INTEGER, invalid_shares INTEGER, timestamp INTEGER);
+
+func (s *Storage) GetLastestWorkerTicker(poolname string, address string, name string) (error, *poolapi.FlexpoolWorkerTicker) {
+	worker := poolapi.FlexpoolWorkerTicker{Name: name}
+	rows, err := s.db.Query(`select valid_shares, timestamp from workerchart where poolname=$1 and address=$2 and workername=$3 order by timestamp desc limit 1;`, poolname, address, name)
+	for rows.Next() {
+		err = rows.Scan(&worker.ValidShares, &worker.Timestamp)
+		if err != nil {
+			return err, nil
+		}
+	}
+	defer rows.Close()
+	return nil, &worker
+}
+
+func (s *Storage) SaveWorkerChart(poolname string, address string, workername string, workers []*poolapi.FlexpoolWorkerTicker) int {
+	filtedworkertickers := []poolapi.FlexpoolWorkerTicker{}
+
+	log.Printf("receive workers %d\n", len(workers))
+	err, lastestticker := s.GetLastestWorkerTicker(poolname, address, workername)
+	for _, worker := range workers {
+		if err != nil {
+			log.Println(err)
+		} else {
+			if worker.ValidShares > 0 && worker.Timestamp > lastestticker.Timestamp {
+				log.Printf("lastestlogworkerticker:%s share %d lastseen %d new ticker share %d time %d\n", lastestticker.Name, lastestticker.ValidShares, lastestticker.Timestamp, worker.ValidShares, worker.Timestamp)
+				filtedworkertickers = append(filtedworkertickers, *worker)
+			} else {
+				log.Printf("skip worker %s share %d lastseen %d\n", worker.Name, worker.ValidShares, worker.Timestamp)
+			}
+		}
+	}
+	log.Println("=======db begin")
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		log.Printf("SaveWorkerChart db.Begin err: %s\n", err)
+		return 0
+	}
+
+	stmt, err := tx.Prepare("insert into workerchart(poolname, address, workername, valid_shares, stale_shares, invalid_shares, timestamp) values( ?,?,?,?,?,?,?)")
+	if err != nil {
+		log.Printf("SaveWorkerTicker tx.Prepare err: %s\n", err)
+		return 0
+	}
+	defer stmt.Close()
+	insertcount := 0
+	for _, worker := range filtedworkertickers {
+		_, err = stmt.Exec(poolname, address, workername, worker.ValidShares, worker.StaleShares, worker.InvalidShares, worker.Timestamp)
+		if err != nil {
+			sqliteErr := err.(sqlite3.Error)
+			if sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey {
+				insertcount++
+				//data exist, it's ok
+			} else {
+				log.Printf("save worker err:%s\n", err)
+			}
+		} else {
+			insertcount++
+		}
+	}
+	tx.Commit()
+	//return insertcount
+	return 0
 }
