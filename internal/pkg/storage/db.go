@@ -137,6 +137,7 @@ func (s *Storage) GetLastestWorkerShare(poolname string, address string, name st
 
 func (s *Storage) SaveBalance(poolname string, address string, balance int64) error {
 	str := fmt.Sprintf("%s %s %d", address, poolname, balance)
+	log.Printf("save balance: %s\n", str)
 	checksumstr := fmt.Sprintf("%x", sha1.Sum([]byte(str)))
 	stmt, err := s.db.Prepare("insert into balance (checksum, address, poolname, balance, created_at) values(?,?,?,?,?)")
 	if err != nil {
@@ -178,8 +179,6 @@ func (s *Storage) SaveWorkerChart(poolname string, address string, workername st
 			}
 		}
 	}
-	log.Println("=======db begin")
-
 	tx, err := s.db.Begin()
 	if err != nil {
 		log.Printf("SaveWorkerChart db.Begin err: %s\n", err)

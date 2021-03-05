@@ -118,7 +118,6 @@ func fetchWorkerChart(ctx context.Context, store *storage.Storage, poolname stri
 	if err != nil {
 		log.Println("flexapi.GetWorkersChart error", err)
 	} else {
-		log.Println(result)
 		store.SaveWorkerChart(poolname, address, workername, result)
 		//log.Printf("save address %s workers\n", address)
 		//savecount := store.SaveWorkerShares(poolname, address, workers)
@@ -135,7 +134,7 @@ func fetchBalance(ctx context.Context, store *storage.Storage, poolname string, 
 	} else {
 		err = store.SaveBalance(poolname, address, balance)
 		if err != nil {
-			log.Println("save balance error", err)
+			log.Printf("save balance error: %s %s %d\n", err, address, balance)
 		} else {
 			log.Printf("balance saved")
 		}
@@ -156,7 +155,6 @@ func runworker(jobch chan Job, resultch chan Result, store *storage.Storage, job
 				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*10))
 				defer cancel()
 				go fetchWorkerChart(ctx, store, j.Poolname, j.Address, j.Workername)
-				log.Println(j)
 			} else if j.Type == JobFetchBalance {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*10))
 				defer cancel()
