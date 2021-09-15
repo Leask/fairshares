@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const FlexApiEndpoint = "https://flexpool.io/api/v1"
+const FlexApiEndpoint = "https://api.flexpool.io/v2"
 const DBVersion = 1
 
 //internal/pkg/poolapi/flexpool.go

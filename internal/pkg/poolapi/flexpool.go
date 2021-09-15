@@ -19,11 +19,11 @@ import (
 type FlexpoolWorkerTicker struct {
 	Name                     string
 	Timestamp                int64   `json:"timestamp"`
-	EffectiveHashrate        float32 `json:"effective_hashrate"`
-	AverageEffectiveHashrate float32 `json:"average_effective_hashrate"`
-	ValidShares              int     `json:"valid_shares"`
-	StaleShares              int     `json:"stale_shares""`
-	InvalidShares            int     `json:"invalid_shares"`
+	EffectiveHashrate        float32 `json:"effectiveHashrate"`
+	AverageEffectiveHashrate float32 `json:"averageEffectiveHashrate"`
+	ValidShares              int     `json:"validShares"`
+	StaleShares              int     `json:"staleShares""`
+	InvalidShares            int     `json:"invalidShares"`
 }
 
 type FlexpoolWorkersChart struct {
@@ -33,20 +33,25 @@ type FlexpoolWorkersChart struct {
 
 type FlexpoolWorker struct {
 	Name          string `json:"name"`
-	Online        bool   `json:"online"`
-	ValidShares   int    `json:"valid_shares"`
-	StaleShares   int    `json:"stale_shares""`
-	InvalidShares int    `json:"invalid_shares"`
-	LastSeen      int64  `json:"last_seen"`
+	Online        bool   `json:"isOnline"`
+	ValidShares   int    `json:"validShares"`
+	StaleShares   int    `json:"staleShares""`
+	InvalidShares int    `json:"invalidShares"`
+	LastSeen      int64  `json:"lastSeen"`
 }
 
 type FlexpoolWorkers struct {
 	Error   *string           `json:"error"`
 	Workers []*FlexpoolWorker `json:"result"`
 }
+
+type BalanceResult struct {
+	Balance int64 `json:"balance"`
+}
 type FlexpoolBalance struct {
-	Error  *string `json:"error"`
-	Result int64   `json:"result"`
+	Error  *string       `json:"error"`
+	Result BalanceResult `json:"result"`
+	//{"error":null,"result":{"balance":484337889491274530,"balanceCountervalue":1589.28,"price":3281.34}}
 }
 
 type FlexAPI struct {
@@ -60,9 +65,12 @@ func NewFlexAPI(e, a string) *FlexAPI {
 
 func (api *FlexAPI) GetBalance(ctx context.Context, address string) (error, int64) {
 	resultbalance := &FlexpoolBalance{}
-	url := fmt.Sprintf("%s/miner/%s/balance/", api.Endpoint, address)
+	url := fmt.Sprintf("%s/miner/balance?address=%s&coin=eth&countervalue=usd", api.Endpoint, address)
+	fmt.Println(url)
+
 	err, jsondata := HttpGet(ctx, url, api.Apikey)
 
+	fmt.Println(string(jsondata))
 	if err != nil {
 		return err, 0
 	}
@@ -76,13 +84,13 @@ func (api *FlexAPI) GetBalance(ctx context.Context, address string) (error, int6
 	if resultbalance.Error != nil {
 		return errors.New(*resultbalance.Error), 0
 	}
-	return nil, resultbalance.Result
+	return nil, resultbalance.Result.Balance
 }
 
 func (api *FlexAPI) GetWorkers(ctx context.Context, address string) (error, []*FlexpoolWorker) {
 	resultworkers := &FlexpoolWorkers{}
-
-	url := fmt.Sprintf("%s/miner/%s/workers/", api.Endpoint, address)
+	url := fmt.Sprintf("%s/miner/workers?address=%s&coin=eth", api.Endpoint, address)
+	fmt.Println(url)
 	err, jsondata := HttpGet(ctx, url, api.Apikey)
 	if err != nil {
 		return err, nil
@@ -102,8 +110,7 @@ func (api *FlexAPI) GetWorkers(ctx context.Context, address string) (error, []*F
 
 func (api *FlexAPI) GetWorkersChart(ctx context.Context, address string, name string) (error, []*FlexpoolWorkerTicker) {
 	resultworkerchart := &FlexpoolWorkersChart{}
-
-	url := fmt.Sprintf("%s/worker/%s/%s/chart/", api.Endpoint, address, name)
+	url := fmt.Sprintf("%s/miner/chart?address=%s&coin=eth&worker=%s", api.Endpoint, address, name)
 	err, jsondata := HttpGet(ctx, url, api.Apikey)
 	if err != nil {
 		return err, nil
