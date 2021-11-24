@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"flag"
-	"github.com/huo-ju/fairshares/internal/pkg/poolapi"
-	"github.com/huo-ju/fairshares/internal/pkg/storage"
+	"../internal/pkg/poolapi"
+	"../internal/pkg/storage"
 	"github.com/mattn/go-sqlite3"
+	"github.com/BurntSushi/toml"
+	"github.com/mailjet/mailjet-apiv3-go"
 	"log"
 	"os"
 	"os/signal"
@@ -16,8 +18,6 @@ import (
 
 const FlexApiEndpoint = "https://api.flexpool.io/v2"
 const DBVersion = 1
-
-//internal/pkg/poolapi/flexpool.go
 
 const (
 	JobFetchWorkers = iota
@@ -38,7 +38,36 @@ type Result struct {
 	err  error
 }
 
+type tomlConfig struct {
+	Flexpool flexpoolInfo
+	Mailjet  mailjetInfo
+	Worker   []workerInfo
+}
+
+type flexpoolInfo struct {
+	Address string
+}
+
+type mailjetInfo struct {
+	Key	   string
+	Secret string
+	Email  string
+}
+
+type workerInfo struct {
+	Name   string
+	Notify string
+}
+
+var conf tomlConfig
+
 func main() {
+
+	if _, err := toml.DecodeFile("config/config.toml", &conf); err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("configured address %s\n", conf.Flexpool.Address)
+	address := conf.Flexpool.Address
 
 	dbname := flag.String("dbname", "faireshare.db", "database name")
 
@@ -47,8 +76,6 @@ func main() {
 	jobch := make(chan Job)
 	resultch := make(chan Result)
 
-	address := "0x65146D70901C70188Eb02AeF452eEcCC3dA39208"
-	//address := "0xc3722311F6f43476174C1ea46E09fF07f007C386"
 	poolname := "flexpool"
 
 	db, err := sql.Open("sqlite3", *dbname)
@@ -94,6 +121,40 @@ func main() {
 	<-exitSignal
 }
 
+func notify(worker string) {
+	for _, w := range conf.Worker {
+		if w.Name == worker {
+			log.Printf("%s is offline, sending notification: %s\n", w.Name, w.Notify)
+			if (conf.Mailjet.Key != "" && conf.Mailjet.Secret != "" && conf.Mailjet.Email != "") {
+				mailjetClient := mailjet.NewMailjetClient(conf.Mailjet.Key, conf.Mailjet.Secret)
+				messagesInfo := []mailjet.InfoMessagesV31{
+					{
+						From: &mailjet.RecipientV31{
+							Email: conf.Mailjet.Email,
+							Name: "Fairshares",
+						},
+						To: &mailjet.RecipientsV31{
+							mailjet.RecipientV31{
+								Email: w.Notify,
+								Name:  worker,
+							},
+						},
+						Subject:  w.Name + " Is Offline",
+						TextPart: "Worker `" + w.Name + "` Is Offline.\n\nPlease check your pool: https://www.flexpool.io/miner/eth/" + conf.Flexpool.Address + ".",
+					},
+				}
+				messages := mailjet.MessagesV31{Info: messagesInfo}
+				res, err := mailjetClient.SendMailV31(&messages)
+				if err != nil {
+					log.Fatal(err)
+				} else {
+					log.Printf("Mailjet: %+v\n", res)
+				}
+			}
+		}
+	}
+}
+
 func fetchWorker(ctx context.Context, jobch chan Job, store *storage.Storage, poolname string, address string) {
 	log.Println("run fetchWorker: ", poolname, address)
 	flexapi := poolapi.NewFlexAPI(FlexApiEndpoint, "")
@@ -104,6 +165,9 @@ func fetchWorker(ctx context.Context, jobch chan Job, store *storage.Storage, po
 		for _, worker := range workers {
 			log.Printf("add fetch chart job poolname %s address %s workers %s\n", poolname, address, worker.Name)
 			jobch <- Job{Type: JobFetchChart, Address: address, Poolname: poolname, Workername: worker.Name}
+			if worker.Online == false  {
+				notify(worker.Name)
+			}
 		}
 		//log.Printf("save address %s workers\n", address)
 		//savecount := store.SaveWorkerShares(poolname, address, workers)

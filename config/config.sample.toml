@@ -1,0 +1,15 @@
+[Flexpool]
+address = "0x65146D70901C70188Eb02AeF452eEcCC3dA39208"
+
+[Mailjet]
+key = ""
+secret = ""
+email = ""
+
+[[Worker]]
+name = "Leask_2080"
+notify = "i@leaskh.com"
+
+[[Worker]]
+name = "Leask_VEGA56"
+notify = "i@leaskh.com"

@@ -4,7 +4,7 @@ import (
 	"crypto/sha1"
 	"database/sql"
 	"fmt"
-	"github.com/huo-ju/fairshares/internal/pkg/poolapi"
+	"../poolapi"
 	"github.com/mattn/go-sqlite3"
 	"log"
 	"time"
@@ -20,8 +20,8 @@ func NewStorage(db *sql.DB) *Storage {
 
 func (s *Storage) NewDatabase() error {
 	sqlStmt := `
-	create table setting (version INTEGER); 
-	create table workershares (logid INTEGER PRIMARY KEY AUTOINCREMENT, poolname TEXT not null, address TEXT not null, workername TEXT not null, valid_shares INTEGER, stale_shares INTEGER, invalid_shares INTEGER, lastseen INTEGER); 
+	create table setting (version INTEGER);
+	create table workershares (logid INTEGER PRIMARY KEY AUTOINCREMENT, poolname TEXT not null, address TEXT not null, workername TEXT not null, valid_shares INTEGER, stale_shares INTEGER, invalid_shares INTEGER, lastseen INTEGER);
 	CREATE INDEX workerindex ON workershares(poolname,address, workername);
 	create table addresses (checksum TEXT primary key, address TEXT, poolname TEXT, created_at TIMESTAMP);
 	create table balance (checksum TEXT primary key, address TEXT, poolname TEXT, balance INTEGER, created_at TIMESTAMP);
