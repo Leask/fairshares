@@ -7,6 +7,7 @@ import (
 	"../internal/pkg/poolapi"
 	"../internal/pkg/storage"
 	"github.com/mattn/go-sqlite3"
+	"github.com/BurntSushi/toml"
 	"log"
 	"os"
 	"os/signal"
@@ -16,8 +17,6 @@ import (
 
 const FlexApiEndpoint = "https://api.flexpool.io/v2"
 const DBVersion = 1
-
-//internal/pkg/poolapi/flexpool.go
 
 const (
 	JobFetchWorkers = iota
@@ -38,7 +37,22 @@ type Result struct {
 	err  error
 }
 
+type tomlConfig struct {
+	Flexpool flexpoolInfo
+}
+
+type flexpoolInfo struct {
+	Address string
+}
+
 func main() {
+
+	var conf tomlConfig
+	if _, err := toml.DecodeFile("config/config.toml", &conf); err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("configured address %s\n", conf.Flexpool.Address)
+	address := conf.Flexpool.Address
 
 	dbname := flag.String("dbname", "faireshare.db", "database name")
 
@@ -47,8 +61,6 @@ func main() {
 	jobch := make(chan Job)
 	resultch := make(chan Result)
 
-	address := "0x65146D70901C70188Eb02AeF452eEcCC3dA39208"
-	//address := "0xc3722311F6f43476174C1ea46E09fF07f007C386"
 	poolname := "flexpool"
 
 	db, err := sql.Open("sqlite3", *dbname)
