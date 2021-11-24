@@ -165,7 +165,7 @@ func fetchWorker(ctx context.Context, jobch chan Job, store *storage.Storage, po
 		for _, worker := range workers {
 			log.Printf("add fetch chart job poolname %s address %s workers %s\n", poolname, address, worker.Name)
 			jobch <- Job{Type: JobFetchChart, Address: address, Poolname: poolname, Workername: worker.Name}
-			if worker.Online != false  {
+			if worker.Online == false  {
 				notify(worker.Name)
 			}
 		}
