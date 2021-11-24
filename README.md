@@ -23,3 +23,7 @@ $ go get github.com/mailjet/mailjet-apiv3-go
 ```
 $ go run cmd/main.go
 ```
+
+## Known Issues
+
+- Unexpected warning from `go-sqlite3`: https://github.com/mattn/go-sqlite3/issues/803
