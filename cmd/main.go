@@ -8,6 +8,7 @@ import (
 	"../internal/pkg/storage"
 	"github.com/mattn/go-sqlite3"
 	"github.com/BurntSushi/toml"
+	"github.com/mailjet/mailjet-apiv3-go"
 	"log"
 	"os"
 	"os/signal"
@@ -39,15 +40,29 @@ type Result struct {
 
 type tomlConfig struct {
 	Flexpool flexpoolInfo
+	Mailjet  mailjetInfo
+	Worker   []workerInfo
 }
 
 type flexpoolInfo struct {
 	Address string
 }
 
+type mailjetInfo struct {
+	Key	   string
+	Secret string
+	Email  string
+}
+
+type workerInfo struct {
+	Name   string
+	Notify string
+}
+
+var conf tomlConfig
+
 func main() {
 
-	var conf tomlConfig
 	if _, err := toml.DecodeFile("config/config.toml", &conf); err != nil {
 		log.Fatal(err)
 	}
@@ -106,6 +121,40 @@ func main() {
 	<-exitSignal
 }
 
+func notify(worker string) {
+	for _, w := range conf.Worker {
+		if w.Name == worker {
+			log.Printf("%s is offline, sending notification: %s\n", w.Name, w.Notify)
+			if (conf.Mailjet.Key != "" && conf.Mailjet.Secret != "" && conf.Mailjet.Email != "") {
+				mailjetClient := mailjet.NewMailjetClient(conf.Mailjet.Key, conf.Mailjet.Secret)
+				messagesInfo := []mailjet.InfoMessagesV31{
+					{
+						From: &mailjet.RecipientV31{
+							Email: conf.Mailjet.Email,
+							Name: "Fairshares",
+						},
+						To: &mailjet.RecipientsV31{
+							mailjet.RecipientV31{
+								Email: w.Notify,
+								Name:  worker,
+							},
+						},
+						Subject:  w.Name + " Is Offline",
+						TextPart: "Worker `" + w.Name + "` Is Offline.\n\nPlease check your pool: https://www.flexpool.io/miner/eth/" + conf.Flexpool.Address + ".",
+					},
+				}
+				messages := mailjet.MessagesV31{Info: messagesInfo}
+				res, err := mailjetClient.SendMailV31(&messages)
+				if err != nil {
+					log.Fatal(err)
+				} else {
+					log.Printf("Mailjet: %+v\n", res)
+				}
+			}
+		}
+	}
+}
+
 func fetchWorker(ctx context.Context, jobch chan Job, store *storage.Storage, poolname string, address string) {
 	log.Println("run fetchWorker: ", poolname, address)
 	flexapi := poolapi.NewFlexAPI(FlexApiEndpoint, "")
@@ -116,6 +165,9 @@ func fetchWorker(ctx context.Context, jobch chan Job, store *storage.Storage, po
 		for _, worker := range workers {
 			log.Printf("add fetch chart job poolname %s address %s workers %s\n", poolname, address, worker.Name)
 			jobch <- Job{Type: JobFetchChart, Address: address, Poolname: poolname, Workername: worker.Name}
+			if worker.Online != false  {
+				notify(worker.Name)
+			}
 		}
 		//log.Printf("save address %s workers\n", address)
 		//savecount := store.SaveWorkerShares(poolname, address, workers)
